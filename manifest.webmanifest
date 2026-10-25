@@ -1,11 +1,12 @@
 {
- "name": "Stammbaum",
+ "id": "familien-stammbaum",
+ "name": "Familien-Stammbaum",
  "short_name": "Stammbaum",
  "start_url": "./",
  "scope": "./",
  "display": "standalone",
- "background_color": "#141D1A",
- "theme_color": "#141D1A",
+ "background_color": "#F2F5EE",
+ "theme_color": "#F2F5EE",
  "lang": "de",
  "icons": [
   {
