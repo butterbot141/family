@@ -2,6 +2,7 @@
  "id": "familien-stammbaum",
  "name": "Familien-Stammbaum",
  "short_name": "Stammbaum",
+ "description": "Familienstammbaum und Familiengeschichten",
  "start_url": "./",
  "scope": "./",
  "display": "standalone",
