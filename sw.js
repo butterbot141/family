@@ -1,7 +1,7 @@
 // Offline-Skript der Stammbaum-App (Ordner /family/).
 // Alle Apps unter butterbot141.github.io teilen sich die Caches: nur eigene Caches mit Präfix "stammbaum-" anfassen.
 const PREFIX='stammbaum-';
-const CACHE=PREFIX+'v7';
+const CACHE=PREFIX+'v8';
 const BASE=new URL('./',self.location).pathname; // z. B. /family/
 const FILES=['./','./index.html','./manifest.webmanifest','./icon-192.png','./icon-512.png','./apple-touch-icon.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)));self.skipWaiting()});

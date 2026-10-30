@@ -367,6 +367,7 @@ svg .edge.u0{stroke:var(--ac2)}svg .edge.u1{stroke:var(--m)}svg .edge.u2{stroke:
 svg .edge.u0,svg .edge.u1,svg .edge.u2,svg .edge.u3{stroke-width:2.5}
 /* Karte: während des Ziehens/Zoomens feine Linien weglassen (flüssiger) */
 svg.mv .st{display:none}svg.mv .world{stroke:none}
+.btn.wide.done{box-shadow:inset 0 0 0 2px var(--ac)}
 </style>
 </head>
 <body>
@@ -481,7 +482,7 @@ const byName=(a,b)=>nm(a).localeCompare(nm(b),'de');
 function nextId(pre,keys){let n=0;for(const k of keys){const m=String(k).match(new RegExp('^'+pre+'(\\d+)'));if(m)n=Math.max(n,+m[1])}return pre+(n+1)}
 const markMod=r=>{if(r._mod!=='neu')r._mod='geändert'};
 const storiesOf=id=>D.geschichten.filter(g=>(S.hidden||!g.versteckt)&&((g.personen||[]).includes(id)||(g.text||'').includes('[['+id+'|')||(g.text||'').includes('[['+id+']]')));
-function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('on');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove('on'),2800)}
+function toast(t,ms){const e=$('#toast');e.textContent=t;e.classList.add('on');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove('on'),ms||2800)}
 
 /* ---------- Overlay ---------- */
 let onClose=null,sheetT=0;
@@ -1245,7 +1246,7 @@ VIEWS.info=()=>{hdr('Info & Daten');const m=D.meta,mc=modCount();
  <button class="btn pri wide" data-act="publish"><span class="bt2">${ic('lock','s')} Familiendatei erstellen<small>verschlüsselt, ohne private Einträge → „familie.json“ und neue Medienpakete zu GitHub hochladen</small></span></button>
  <button class="btn wide" data-act="backup"><span class="bt2">${ic('dl','s')} Sicherung speichern<small>alles inkl. Privatem, unverschlüsselt – nur für dich</small></span></button>
  <button class="btn wide" data-act="gedcom"><span class="bt2">${ic('dl','s')} GEDCOM exportieren<small>für Gramps, MyHeritage, Ancestry, webtrees … (ohne Fotos)</small></span></button>
- <p class="muted" style="font-size:.92rem">Hochladen: GitHub → Repository → „Add file“ → „Upload files“ → <code>familie.json</code> und neue <code>medien-….bin</code> hineinziehen → „Commit“. Alte Medienpakete bleiben einfach liegen. Alle bekommen die neue Version beim nächsten Öffnen.</p></div></details>
+ <p class="muted" style="font-size:.92rem">Hochladen: GitHub → Repository → „Add file“ → „Upload files“ → alle Dateien aus der Liste nach „Familiendatei erstellen“ hineinziehen (<code>familie.json</code> und ggf. <code>medien-….bin</code>) → „Commit“. Fehlt ein Medienpaket bei GitHub, wird es beim nächsten Erstellen automatisch neu angeboten. Alle bekommen die neue Version beim nächsten Öffnen.</p></div></details>
  <section class="card"><h3>Familie</h3><div class="form"><label>Titel<input data-meta="titel" value="${esc(m.titel||'')}"></label><label>Untertitel<input data-meta="untertitel" value="${esc(m.untertitel||'')}" placeholder="z. B. Westfalen, seit 1771"></label>
  <label>Ausgangsperson für die Nummern<select data-meta="proband">${personOpts(m.proband)}</select><small>Eines der Geschwister – alle Geschwister bekommen 1a, 1b, 1c …</small></label>
  <label>Geschichte zum Wappen<select data-meta="wappenStory"><option value="">–</option>${D.geschichten.map(g=>`<option value="${g.id}" ${g.id===m.wappenStory?'selected':''}>${esc(g.titel)}</option>`).join('')}</select></label>
@@ -1282,12 +1283,14 @@ async function encryptBin(obj,pw){const salt=crypto.getRandomValues(new Uint8Arr
 async function decryptBin(u,pw){if(String.fromCharCode(...u.subarray(0,4))!=='STB1')throw new Error('Format');const key=await keyFrom(pw,u.subarray(4,20),600000);
  return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:u.subarray(20,32)},key,u.subarray(32))))}
 const PACKMAX=18e6;/* < 25 MB Browser-Upload-Grenze von GitHub */
-async function packMedia(data,pw){if(!data.pakete)return;const need=usedMedia(data.personen||[],data.geschichten||[],data.meta),m=data.media||{};
+/* lädt fehlende Medien aus den Paketen; gibt die Namen nicht erreichbarer Pakete zurück (Familie öffnet trotzdem) */
+async function packMedia(data,pw){const miss=[];if(!data.pakete)return miss;const need=usedMedia(data.personen||[],data.geschichten||[],data.meta),m=data.media||{};
  for(const id of need)if(!m[id]&&MEDIA.has(id))m[id]=MEDIA.get(id);
  for(const pk of data.pakete){if(!pk.ids.some(id=>need.has(id)&&!m[id]))continue;toast('Lade Medien …');
-  const r=await fetch(pk.name);if(!r.ok)throw new Error(`„${pk.name}“ fehlt bei GitHub`);const obj=await decryptBin(new Uint8Array(await r.arrayBuffer()),pw);
-  for(const id of pk.ids)if(need.has(id)&&!m[id]&&obj[id])m[id]=obj[id]}
- data.media=m;await DB.put('kv','pakete',data.pakete)}
+  try{const r=await fetch(pk.name,{cache:'no-cache'});if(!r.ok)throw 0;const obj=await decryptBin(new Uint8Array(await r.arrayBuffer()),pw);
+   for(const id of pk.ids)if(need.has(id)&&!m[id]&&obj[id])m[id]=obj[id]}catch(e){miss.push(pk.name)}}
+ data.media=m;await DB.put('kv','pakete',data.pakete);return miss}
+const missMsg=miss=>`Fotos/Audios fehlen noch – bei GitHub fehlt: ${miss.join(', ')}`;
 async function decrypt(o,pw){const key=await keyFrom(pw,unb64(o.salt),o.iter);const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:unb64(o.iv)},key,unb64(o.data));return JSON.parse(new TextDecoder().decode(pt))}
 const slug=s=>String(s||'familie').toLowerCase().replace(/[äöüß]/g,c=>({ä:'ae',ö:'oe',ü:'ue',ß:'ss'}[c])).replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
 const today=()=>new Date().toISOString().slice(0,10);
@@ -1305,22 +1308,33 @@ async function saveFile(name,text,share){const blob=text instanceof Blob?text:ne
 async function saveFiles(list,share){if(list.length===1)return saveFile(list[0][0],list[0][1],share);
  if(share&&navigator.canShare){const files=list.map(([n,b])=>new File([b],n,{type:b.type}));if(navigator.canShare({files})){try{await navigator.share({files});return true}catch(e){if(e.name==='AbortError')return false}}}
  for(const[n,b]of list){await saveFile(n,b,false);await new Promise(r=>setTimeout(r,700))}return true}
+function uploadSheet(files,big){const mb=b=>(b.size/1e6).toFixed(1).replace('.',',')+' MB';
+ const s=sheet(`<div class="shead"><h3>${ic('lock','s')} Dateien für GitHub</h3><button class="ib" data-act="close" aria-label="Schließen">${ic('close')}</button></div>
+ <p class="muted" style="margin-top:0">Jede Datei einzeln speichern (antippen), dann alle zusammen bei GitHub → „Add file“ → „Upload files“ hineinziehen → „Commit“.</p>
+ ${files.map(([n,b],i)=>`<button class="btn wide" data-f="${i}"><span class="bt2">${ic('dl','s')} ${esc(n)}<small>${mb(b)}${n===REMOTE?' – Familiendaten (Text)':' – Fotos/Audios'}</small></span></button>`).join('')}
+ ${big.length?`<p class="muted" style="color:var(--bad)">Größer als 24 MB: ${esc(big.join(', '))} – GitHub nimmt das im Browser nicht an. Großes Video kürzen und neu erstellen.</p>`:''}
+ ${files.length>1&&navigator.canShare?`<button class="btn ghost wide" data-f="all">Alle teilen (Handy)</button>`:''}`);
+ s.addEventListener('click',async ev=>{const f=ev.target.closest('[data-f]');if(!f)return;
+  if(f.dataset.f==='all'){await saveFiles(files,true);return}const[n,b]=files[+f.dataset.f];if(await saveFile(n,b,false)){f.classList.add('done');f.querySelector('small').textContent='✓ gespeichert'}})}
 ACT.backup=async()=>{toast('Sicherung wird erstellt …');saveFile(`${slug(D.meta.titel)}-sicherung-${today()}.json`,JSON.stringify(await buildFile(false)),false)};
 ACT.publish=async()=>{const stored=await DB.get('kv','pw');
  const r=await ask({title:'Familiendatei erstellen',text:'Verschlüsselt mit diesem Passwort. Die Familie braucht es einmal pro Gerät. Private Einträge bleiben draußen.',fields:stored?[{name:'a',label:'Passwort',type:'password',value:stored}]:[{name:'a',label:'Passwort (4–5 Wörter)',type:'password'},{name:'b',label:'Wiederholen',type:'password'}],ok:'Erstellen'});
  if(!r)return;if(r.a.length<10)return toast('Bitte ein längeres Passwort (mind. 10 Zeichen)');if(!stored&&r.a!==r.b)return toast('Passwörter stimmen nicht überein');
  toast('Verschlüssele …');const stand=new Date().toISOString();const f=await buildFile(true);f.meta.stand=stand;
  /* nur neue Medien kommen in ein neues Paket; vorhandene Pakete bleiben bei GitHub */
- const reg=(await DB.get('kv','pakete'))||[],known=new Set(reg.flatMap(p=>p.ids)),neu=Object.keys(f.media).filter(id=>!known.has(id));
+ let reg=(await DB.get('kv','pakete'))||[];
+ if(reg.length&&location.protocol.startsWith('http')){toast('Prüfe Medienpakete bei GitHub …');const ok=[];/* fehlt ein Paket online, wird es neu erstellt */
+  for(const pk of reg){let keep=true;try{const x=await fetch(pk.name,{method:'HEAD',cache:'no-store'});if(x.status===404)keep=false}catch(e){}if(keep)ok.push(pk)}reg=ok}
+ const known=new Set(reg.flatMap(p=>p.ids)),neu=Object.keys(f.media).filter(id=>!known.has(id));
  const chunks=[];let cur=null;for(const id of neu){const sz=(f.media[id].src||'').length;if(!cur||cur.sz+sz>PACKMAX)chunks.push(cur={ids:[],sz:0});cur.ids.push(id);cur.sz+=sz}
  let nr=reg.reduce((a,p)=>Math.max(a,+(p.name.match(/\d+/)||[0])[0]),0);const out=[];
  for(const c of chunks){const name=`medien-${String(++nr).padStart(3,'0')}.bin`,obj={};c.ids.forEach(id=>obj[id]=f.media[id]);const b=await encryptBin(obj,r.a);out.push([name,b]);reg.push({name,ids:c.ids})}
  f.pakete=reg;f.media={};const enc=await encrypt(f,r.a);
  const files=[[REMOTE,new Blob([JSON.stringify({format:enc.format,stand,...enc})],{type:'application/json'})],...out];
  const big=files.filter(([,b])=>b.size>24e6).map(([n])=>n);
- if(!await saveFiles(files,true))return;await DB.put('kv','pakete',reg);
+ await DB.put('kv','pakete',reg);uploadSheet(files,big);
  await DB.put('kv','pw',r.a);D.personen.forEach(p=>delete p._mod);D.geschichten.forEach(g=>delete g._mod);D.fakten.forEach(f=>delete f._mod);D.orte.forEach(o=>delete o._mod);delete D.meta._mod;D.geloescht=[];D.meta.stand=stand;delete D.meta.demo;await saveD();index();rerender();
- toast(big.length?`Achtung: ${big.join(', ')} ist größer als 24 MB – Video kürzen`:`Fertig – jetzt ${files.map(x=>x[0]).join(', ')} bei GitHub hochladen`,8000)};
+ };
 ACT.expMod=async()=>{const ps=D.personen.filter(p=>p._mod),gs=D.geschichten.filter(g=>g._mod),fs=D.fakten.filter(f=>f._mod),os=D.orte.filter(x=>x._mod);
  const o={format:'stammbaum-aenderungen',v:4,erstellt:today(),familie:D.meta.titel,basis:D.meta.stand||null,personen:ps,geschichten:gs,fakten:fs,orte:os,geloescht:D.geloescht};
  const txt=JSON.stringify(o,null,1);const mids=usedMedia(ps,gs,null);
@@ -1339,7 +1353,7 @@ function upsertAll(ps,gs,fs,dels,os=[]){/* fügt Datensätze ein; neue ids, die 
 ACT.imp=async()=>{const[f]=await pickFiles('.json,application/json');if(!f)return;let o;try{o=JSON.parse(await f.text())}catch(e){return toast('Keine gültige Datei')}
  if(o.format==='stammbaum-verschluesselt'){const stored=await DB.get('kv','pw');let data=null;if(stored)try{data=await decrypt(o,stored)}catch(e){}
   if(!data){const r=await ask({title:'Passwort',fields:[{name:'pw',label:'Passwort der Familiendatei',type:'password'}],ok:'Öffnen'});if(!r)return;try{data=await decrypt(o,r.pw);await DB.put('kv','pw',r.pw)}catch(e){return toast('Passwort falsch oder Datei beschädigt')}}
-  try{await packMedia(data,await DB.get('kv','pw'))}catch(e){toast('Einige Medien fehlen: '+e.message)}
+  try{const miss=await packMedia(data,await DB.get('kv','pw'));if(miss.length)toast(missMsg(miss),8000)}catch(e){}
   data.meta=data.meta||{};data.meta.stand=o.stand||data.meta.stand;o=data}
  if(o.format==='stammbaum-aenderungen')return mergeChanges(o);
  if(o.format!=='stammbaum'||!Array.isArray(o.personen))return toast('Unbekanntes Dateiformat');
@@ -1369,8 +1383,8 @@ async function remoteCheck(manual){if(!location.protocol.startsWith('http')){if(
  let pw=await DB.get('kv','pw'),data=null;if(pw)try{data=await decrypt(o,pw)}catch(e){}
  while(!data){const r=await ask({title:D.meta.stand?'Neue Familiendaten':'Familiendaten öffnen',text:'Bitte das Familien-Passwort eingeben. Es wird auf diesem Gerät gespeichert – danach kommen neue Versionen automatisch.',fields:[{name:'pw',label:'Passwort',type:'password'}],ok:'Öffnen'});
   if(!r)return;try{data=await decrypt(o,r.pw);pw=r.pw;await DB.put('kv','pw',pw)}catch(e){toast('Passwort stimmt nicht')}}
- try{await packMedia(data,pw)}catch(e){toast('Medien konnten nicht geladen werden: '+e.message);return}
- data.meta.stand=o.stand;await applyFull(data);toast('Familiendaten aktualisiert');route()}
+ let miss=[];try{miss=await packMedia(data,pw)}catch(e){}
+ data.meta.stand=o.stand;await applyFull(data);toast(miss.length?missMsg(miss):'Familiendaten aktualisiert',miss.length?8000:undefined);route()}
 ACT.remote=()=>remoteCheck(true);
 ACT.reset=async({k})=>{if(!await ask({title:k==='demo'?'Beispieldaten laden?':'Leere Familie anlegen?',text:'Die Daten auf diesem Gerät werden ersetzt.',ok:'Ersetzen',danger:true}))return;
  if(k==='demo')await loadDataset(JSON.parse($('#data').textContent));
